@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentReserve | Predictive Orchestration</title>
+    <style>
+        :root {
+            --bg-color: #0f111a;
+            --card-bg: #1e2130;
+            --text-main: #e2e8f0;
+            --text-muted: #94a3b8;
+            --accent: #3b82f6;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background-color: var(--bg-color); color: var(--text-main); margin: 0; padding: 2rem; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        .network-bar { display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 1rem 1.5rem; border-radius: 8px; margin-bottom: 2rem; border-left: 4px solid var(--success); transition: all 0.3s;}
+        .network-offline { border-left-color: var(--danger); }
+        .badge { background: var(--warning); color: black; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: bold; display: none; margin-left: 1rem;}
+        
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 2rem; }
+        .card { background: var(--card-bg); padding: 1.5rem; border-radius: 8px; }
+        .metric-value { font-size: 2.5rem; font-weight: bold; margin: 0.5rem 0; }
+        
+        .text-green { color: var(--success); }
+        .text-red { color: var(--danger); }
+        
+        table { width: 100%; border-collapse: collapse; margin-bottom: 2rem; }
+        th, td { text-align: left; padding: 1rem; border-bottom: 1px solid #334155; }
+        th { color: var(--text-muted); }
+        .pill { padding: 0.25rem 0.75rem; border-radius: 999px; font-size: 0.85rem; background: #334155; }
+        
+        .progress-bg { background: #334155; height: 8px; border-radius: 4px; overflow: hidden; margin-top: 0.5rem; }
+        .progress-fill { background: var(--accent); height: 100%; transition: width 0.3s ease; }
+        .resource-header { display: flex; justify-content: space-between; font-size: 0.9rem; margin-top: 1rem; }
+
+        .controls { display: flex; gap: 1rem; margin-top: 2rem; }
+        button { padding: 0.75rem 1.5rem; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; color: white; flex: 1; }
+        button:hover { opacity: 0.9; }
+        .btn-primary { background: var(--accent); }
+        .btn-danger { background: var(--danger); }
+        .btn-toggle { background: #475569; }
+        
+        .event-log { font-family: monospace; color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        
+        <div id="network-bar" class="network-bar">
+            <div>
+                <strong id="network-status" class="text-green">🌐 SYSTEM ONLINE</strong>
+                <span id="offline-badge" class="badge">0 Pending Syncs</span>
+            </div>
+            <button class="btn-toggle" style="flex: 0 0 auto;" onclick="toggleNetwork()">📡 Simulate Network Drop</button>
+        </div>
+
+        <div class="grid-3">
+            <div class="card">
+                <div style="color: var(--text-muted)">Resource Conflicts</div>
+                <div class="metric-value text-red" id="metric-conflicts">0</div>
+            </div>
+            <div class="card">
+                <div style="color: var(--text-muted)">Active Agents</div>
+                <div class="metric-value" id="metric-agents">0/0</div>
+            </div>
+            <div class="card">
+                <div style="color: var(--text-muted)">Predictive Reservations</div>
+                <div class="metric-value" id="metric-reservations">0</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Live Agent Workflows</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Agent Name</th>
+                        <th>Priority Score</th>
+                        <th>Profile (Urg / Crit)</th>
+                        <th>Current Task</th>
+                        <th>Predicted Next Step</th>
+                        <th>AI Confidence</th>
+                    </tr>
+                </thead>
+                <tbody id="agent-table-body"></tbody>
+            </table>
+        </div>
+
+        <div class="card" style="margin-top: 2rem;">
+            <h3>📊 Resource Utilization</h3>
+            <div id="resource-grid" class="grid-3"></div>
+        </div>
+
+        <div class="card" style="margin-top: 2rem;">
+            <h3>System Logs</h3>
+            <div id="event-log" class="event-log"></div>
+        </div>
+
+        <div class="controls">
+            <button class="btn-primary" onclick="triggerAction('/api/tick')">⏱️ Queue Time Step</button>
+            <button class="btn-danger" onclick="triggerAction('/api/crisis')">🚨 Queue Resource Crisis</button>
+            <button style="background: #64748b;" onclick="triggerAction('/api/reset')">🔄 Reset System</button>
+        </div>
+    </div>
+
+    <script>
+        let isOnline = true;
+        let offlineQueue = [];
+
+        function toggleNetwork() {
+            isOnline = !isOnline;
+            const bar = document.getElementById('network-bar');
+            const status = document.getElementById('network-status');
+            const toggleBtn = document.querySelector('.btn-toggle');
+            
+            if (isOnline) {
+                bar.classList.remove('network-offline');
+                status.innerText = "🌐 SYSTEM ONLINE";
+                status.className = "text-green";
+                toggleBtn.innerText = "📡 Simulate Network Drop";
+                
+                if (offlineQueue.length > 0) {
+                    syncOfflineData();
+                }
+            } else {
+                bar.classList.add('network-offline');
+                status.innerText = "🚫 SYSTEM OFFLINE";
+                status.className = "text-red";
+                toggleBtn.innerText = "📡 Reconnect Network";
+            }
+        }
+
+        async function triggerAction(endpoint) {
+            if (!isOnline) {
+                offlineQueue.push(endpoint);
+                const badge = document.getElementById('offline-badge');
+                badge.innerText = `${offlineQueue.length} Pending Syncs`;
+                badge.style.display = 'inline-block';
+                
+                const logDiv = document.getElementById('event-log');
+                logDiv.innerHTML = `<div style="color:var(--warning)">[OFFLINE CACHED] Action saved locally...</div>` + logDiv.innerHTML;
+                return;
+            }
+            
+            await fetch(endpoint, { method: 'POST' });
+            fetchState(); 
+        }
+
+        async function syncOfflineData() {
+            const actionsToSync = [...offlineQueue];
+            offlineQueue = []; 
+            document.getElementById('offline-badge').style.display = 'none';
+            
+            const res = await fetch('/api/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ actions: actionsToSync })
+            });
+            const data = await res.json();
+            updateUI(data);
+        }
+
+        async function fetchState() {
+            if (!isOnline) return;
+            const res = await fetch('/api/state');
+            const data = await res.json();
+            updateUI(data);
+        }
+
+        function updateUI(data) {
+            if(data.metrics) {
+                document.getElementById('metric-conflicts').innerText = data.metrics.conflicts;
+                document.getElementById('metric-agents').innerText = `${data.metrics.active} / ${data.metrics.total}`;
+                document.getElementById('metric-reservations').innerText = data.metrics.reservations;
+            }
+            
+            if(data.agents) {
+                const tbody = document.getElementById('agent-table-body');
+                tbody.innerHTML = '';
+                data.agents.forEach(agent => {
+                    const score = Number(agent.Score).toFixed(1);
+                    
+                    const urgColor = agent.Urgency === 'High' ? 'var(--danger)' : agent.Urgency === 'Medium' ? 'var(--warning)' : 'var(--text-muted)';
+                    const critColor = agent.Criticality === 'High' ? 'var(--danger)' : agent.Criticality === 'Medium' ? 'var(--warning)' : 'var(--text-muted)';
+
+                    let taskPillColor = "#334155";
+                    if (agent['Current Service'].includes("Queued")) taskPillColor = "var(--warning); color: black;";
+                    if (agent['Current Service'].includes("Using")) taskPillColor = "var(--success); color: black;";
+
+                    tbody.innerHTML += `<tr>
+                        <td><strong>${agent.Agent}</strong></td>
+                        <td><span class="pill" style="background: #475569; color: white; font-weight:bold;">${score}</span></td>
+                        <td>
+                            <span style="color: ${urgColor}; font-size: 0.8rem; font-weight: bold;">[${agent.Urgency[0]}]</span> / 
+                            <span style="color: ${critColor}; font-size: 0.8rem; font-weight: bold;">[${agent.Criticality[0]}]</span>
+                        </td>
+                        <td><span class="pill" style="background: ${taskPillColor}">${agent['Current Service']}</span></td>
+                        <td>→ ${agent['Predicted Next']}</td>
+                        <td class="text-green">${agent.Probability}</td>
+                    </tr>`;
+                });
+            }
+
+            if(data.resources) {
+                const resGrid = document.getElementById('resource-grid');
+                resGrid.innerHTML = '';
+                
+                for (const [name, resData] of Object.entries(data.resources)) {
+                    let used = resData.used; 
+                    let progress = resData.total > 0 ? (used / resData.total) * 100 : 100;
+                    let colorClass = (used === resData.total && resData.total > 0) ? "background-color: var(--danger);" : "";
+                    
+                    resGrid.innerHTML += `<div>
+                        <div class="resource-header">
+                            <strong>${name}</strong>
+                            <span style="color: var(--text-muted)">${used} / ${resData.total}</span>
+                        </div>
+                        <div class="progress-bg">
+                            <div class="progress-fill" style="width: ${progress}%; ${colorClass}"></div>
+                        </div>
+                    </div>`;
+                }
+            }
+
+            if(data.events) {
+                document.getElementById('event-log').innerHTML = data.events.map(e => `<div>${e}</div>`).join('');
+            }
+        }
+
+        fetchState(); 
+    </script>
+</body>
+</html>
